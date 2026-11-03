@@ -97,3 +97,121 @@ const animatedProject = {
 applyScope.applyProject(animatedProject);
 assert.equal(applyScope.items[0].iconAnimation.animation.frametime, 3);
 console.log('Passed: browser project loading preserves animation metadata');
+
+// History uses the same project loader as API/import, while retaining the current view.
+const historyEvents = new Map();
+const historyScope = {
+  structuredClone, queueMicrotask, setTimeout, Set, Map, JSON,
+  project: {version: 3, items: [{id: 'a', name: 'A'}], objects: [{id: 'o1', x: 0}],
+    templates: [], recipes: [], files: [], itemCategories: [], recentItems: [], hiddenExamples: [], camera: {x: 0,y: 0,z: 1}},
+  camera: {x: 80,y: 20,z: 2}, pointerInteraction: false, selection: new Set(['o1']),
+  selectionOrigin: 'marquee', inspectedItem: 'a', view: 'a', pendingDrafts: new Set(),
+  document: {activeElement: {tagName: 'BODY'}, querySelector: () => null,
+    addEventListener: (type, fn) => historyEvents.set(type, fn)},
+  window: {addEventListener: (type, fn) => historyEvents.set(type, fn)},
+  hideMenu() {}, renderWorld() {}, renderProps() {}, renderPreview() {}, stat() {},
+};
+historyScope.projectSnapshot = () => structuredClone(historyScope.project);
+historyScope.applyProject = p => {historyScope.project = structuredClone(p); historyScope.camera = p.camera; historyScope.selection.clear(); historyScope.inspectedItem = null;};
+historyScope.itemBy = id => historyScope.project.items.find(i => i.id === id);
+Object.defineProperty(historyScope, 'objects', {get: () => historyScope.project.objects});
+vm.createContext(historyScope);
+const historyStart = html.indexOf('function historySnapshot(');
+assert(historyStart >= 0, 'Undo history is missing');
+vm.runInContext(html.slice(historyStart, html.indexOf('const pendingDrafts=', historyStart)), historyScope);
+vm.runInContext('resetHistory()', historyScope);
+historyScope.project.objects[0].x = 10;
+historyScope.checkpointHistory();
+historyScope.project.objects[0].x = 20;
+historyScope.checkpointHistory();
+assert.equal(historyScope.stepHistory(-1), true);
+assert.equal(historyScope.project.objects[0].x, 10);
+assert.equal(historyScope.camera.z, 2, 'Undo preserves pan and zoom');
+assert.equal(historyScope.inspectedItem, 'a', 'Undo retains Item inspection');
+assert.equal(historyScope.stepHistory(1), true);
+assert.equal(historyScope.project.objects[0].x, 20);
+historyScope.stepHistory(-1);
+historyScope.project.items[0].name = 'New name';
+historyScope.checkpointHistory();
+assert.equal(historyScope.stepHistory(1), false, 'Editing after undo clears redo');
+historyScope.stepHistory(-1);
+assert.equal(historyScope.project.items[0].name, 'A');
+historyScope.project.camera = {x: 999,y: 999,z: 1};
+historyScope.checkpointHistory();
+historyScope.stepHistory(-1);
+assert.equal(historyScope.project.objects[0].x, 0, 'Camera-only changes add no history');
+historyScope.resetHistory();
+historyScope.pointerInteraction = true;
+for (let x = 1; x <= 10; x++) {historyScope.project.objects[0].x = x; historyScope.checkpointHistory();}
+historyScope.pointerInteraction = false;
+historyScope.checkpointHistory();
+historyScope.stepHistory(-1);
+assert.equal(historyScope.project.objects[0].x, 0, 'Whole drag is one step');
+assert.equal(historyScope.stepHistory(-1), false);
+// External changes are one undoable step, but initial loading resets history.
+historyScope.project.items[0].name = 'AI name';
+historyScope.checkpointHistory();
+historyScope.stepHistory(-1);
+assert.equal(historyScope.project.items[0].name, 'A');
+historyScope.project.items[0].name = 'Loaded';
+historyScope.resetHistory();
+assert.equal(historyScope.stepHistory(-1), false);
+let prevented = false;
+const shortcut = {key: 'z', ctrlKey: true, preventDefault() {prevented = true;}};
+historyScope.project.items[0].name = 'Edit';historyScope.checkpointHistory();
+historyScope.document.activeElement = {tagName: 'INPUT'};
+historyScope.historyKeydown(shortcut);
+assert.equal(prevented, false, 'Text inputs retain native undo');
+assert.equal(historyScope.project.items[0].name, 'Edit');
+historyScope.document.activeElement = {tagName: 'DIV', isContentEditable: true};
+historyScope.historyKeydown(shortcut);
+assert.equal(prevented, false, 'Contenteditable retains native undo');
+historyScope.document.activeElement = {tagName: 'BODY'};
+historyScope.historyKeydown(shortcut);
+assert.equal(prevented, true);
+assert.equal(historyScope.project.items[0].name, 'Loaded');
+historyScope.historyKeydown({...shortcut, ctrlKey: false, metaKey: true, shiftKey: true});
+assert.equal(historyScope.project.items[0].name, 'Edit');
+console.log('Passed: undo/redo, branch clearing, drag transactions, API edits, view preservation and native text undo');
+
+// Exercise the real loader with bundled assets and recipes, including animation metadata.
+Object.assign(applyScope, {queueMicrotask, setTimeout, window: {addEventListener() {}},
+  pointerInteraction: false, selectionOrigin: 'none', pendingDrafts: new Set(), hideMenu() {}, stat() {}});
+vm.runInContext(html.slice(historyStart, html.indexOf('const pendingDrafts=', historyStart)), applyScope);
+vm.runInContext(loadFunction('projectSnapshot', 'collectProject').split('const assetDataCache=')[0], applyScope);
+applyScope.applyProject({...animatedProject, files: [{path: '界面/crafting.svg', src: 'assets/crafting.svg'}]}, true);
+applyScope.resetHistory();
+applyScope.items[0].name = 'Changed';applyScope.checkpointHistory();
+applyScope.stepHistory(-1);
+assert.equal(applyScope.items[0].name, 'Animated');
+assert.equal(applyScope.files[0].src, 'assets/crafting.svg');
+applyScope.stepHistory(1);
+assert.equal(applyScope.items[0].name, 'Changed');
+assert.equal(applyScope.items[0].iconAnimation.animation.frametime, 3);
+console.log('Passed: real history restoration preserves bundled files and animated icons');
+
+// Run the actual reconciliation and save path: API update -> undo -> PUT with current revision.
+vm.runInContext("let apiRevision=1,apiReady=true,apiBusy=false,apiBaseline=JSON.stringify(projectSnapshot()),apiStartupSignature='';", historyScope);
+const syncStart = html.indexOf('async function syncProject(');
+vm.runInContext(html.slice(syncStart, html.indexOf("let apiStartupSignature=", syncStart)), historyScope);
+let remoteProject = structuredClone(historyScope.project), remoteRevision = 2;
+remoteProject.items[0].name = 'API edit';
+historyScope.apiCall = async () => ({revision: remoteRevision, project: structuredClone(remoteProject)});
+historyScope.syncStatus = () => {};
+historyScope.pushProject = async (revision, raw) => {
+  assert.equal(revision, remoteRevision, 'Undo saves with the latest API revision');
+  remoteProject = structuredClone(raw);remoteRevision++;
+  vm.runInContext('apiRevision='+remoteRevision+';apiBaseline=JSON.stringify(projectSnapshot());', historyScope);
+};
+(async () => {
+  historyScope.resetHistory();
+  await historyScope.syncProject();
+  assert.equal(historyScope.project.items[0].name, 'API edit');
+  historyScope.stepHistory(-1);
+  assert.equal(historyScope.project.items[0].name, 'Edit');
+  await historyScope.syncProject();
+  assert.equal(remoteProject.items[0].name, 'Edit', 'Undo is persisted back to API');
+  historyScope.stepHistory(1);
+  assert.equal(historyScope.project.items[0].name, 'API edit');
+  console.log('Passed: external API edit is undoable and undo persists without losing redo');
+})().catch(error => {console.error(error);process.exitCode = 1;});
