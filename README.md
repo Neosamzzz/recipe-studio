@@ -4,7 +4,7 @@
 
 ## 启动
 
-双击 `启动.command`，或在本目录执行 `python3 server.py`，浏览器访问 http://127.0.0.1:8766/ 。需要 Python 3；关闭服务终端即停止服务。
+macOS 双击 `启动.command`，Windows 双击 `启动.bat`，会启动服务并自动打开浏览器。需要 Python 3；Windows 启动脚本依次检测 `py -3`、`python` 和 `python3`。也可在本目录执行 `python3 server.py`，浏览器访问 http://127.0.0.1:8766/ 。关闭服务终端即停止服务。
 
 ## 操作
 
