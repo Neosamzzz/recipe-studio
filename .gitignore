@@ -1,3 +1,5 @@
 .DS_Store
 /Minecraft合成台配置/
 /minecraft-recipe/
+/.local/
+__pycache__/
