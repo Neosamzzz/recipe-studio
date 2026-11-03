@@ -68,7 +68,7 @@ for (const src of ['data:image/png;base64,AA==', 'assets/crafting.svg', 'assets/
 assert.equal(imageScope.valid({id: 'image', type: 'image', x: 0, y: 0, w: 100, h: 50, src: '/.git/config'}), false);
 console.log('Passed: browser accepts API-supported image sources and rejects unrelated paths');
 const applyScope = {
-  structuredClone, items: [], itemCategories: [], recentItems: [], itemExpanded: new Map(),
+  McItemAnimation: require('../icon-animation.js'), structuredClone, items: [], itemCategories: [], recentItems: [], itemExpanded: new Map(),
   inspectedItem: null, view: 'a', serial: 0, templates: [], recipes: [],
   hiddenExamples: new Set(), previewIndex: new Map(), files: [], selection: new Set(),
   renderItems() {}, renderRecentItems() {}, renderFiles() {}, renderLibrary() {},
@@ -87,3 +87,13 @@ applyScope.applyProject({
 assert.equal(applyScope.objects[0].src, 'assets/crafting.svg');
 assert.equal(applyScope.hiddenExamples.has('custom-id'), true);
 console.log('Passed: complete API project with bundled image and unknown hidden example can be restored');
+
+const animatedProject = {
+  version: 3, items: [{id: 'a', name: 'Animated', type: 'part', color: '#ffffff',
+    icon: 'data:image/png;base64,AA==', iconAnimation: {animation: {frametime: 3, frames: [0, 1]}}}],
+  itemCategories: [{path: ['材料'], ids: ['a']}], objects: [], templates: [], recipes: [], files: [],
+  recentItems: [], hiddenExamples: [], camera: {x: 0, y: 0, z: 1},
+};
+applyScope.applyProject(animatedProject);
+assert.equal(applyScope.items[0].iconAnimation.animation.frametime, 3);
+console.log('Passed: browser project loading preserves animation metadata');

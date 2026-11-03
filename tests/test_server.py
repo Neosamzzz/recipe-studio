@@ -111,6 +111,26 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(state['project']['items']), 1)
         self.assertEqual(state['project']['recipes'], [])
 
+    def test_mc_animation_metadata_roundtrip_and_invalid_rejection(self):
+        self.seed()
+        metadata = {'animation': {'frametime': 3, 'interpolate': True,
+                                'frames': [0, {'index': 1, 'time': 6}]}}
+        status, result = self.request('PATCH', '/api/items/a', {'revision': 1, 'changes': {
+            'icon': 'data:image/png;base64,AA==', 'iconAnimation': metadata}})
+        self.assertEqual(status, 200, result)
+        _, state = self.request('GET', '/api/project')
+        self.assertEqual(state['project']['items'][0]['iconAnimation'], metadata)
+        bad = {'animation': {'frames': [{'index': -1, 'time': 0}]}}
+        status, _ = self.request('PATCH', '/api/items/a',
+                                 {'revision': 2, 'changes': {'iconAnimation': bad}})
+        self.assertEqual(status, 422)
+        _, state = self.request('GET', '/api/project')
+        self.assertEqual(state['revision'], 2)
+        self.assertEqual(state['project']['items'][0]['iconAnimation'], metadata)
+        for malformed in ({}, [], False):
+            self.assertEqual(self.request('PATCH', '/api/items/a',
+                {'revision': 2, 'changes': {'iconAnimation': malformed}})[0], 422)
+
     def test_schema_summary_and_storage_reload(self):
         self.seed()
         self.assertEqual(self.request('GET', '/api/schema')[0], 200)

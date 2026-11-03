@@ -16,6 +16,29 @@ RESOURCES = {'items': 'items', 'categories': 'itemCategories', 'objects': 'objec
              'recipes': 'recipes', 'templates': 'templates', 'files': 'files'}
 
 
+def valid_animation(metadata):
+    if not isinstance(metadata, dict) or not isinstance(metadata.get('animation'), dict):
+        return False
+    a = metadata['animation']
+    def positive(value):
+        return type(value) is int and value > 0
+    if any(k in a and not positive(a[k]) for k in ('frametime', 'width', 'height')):
+        return False
+    if 'interpolate' in a and type(a['interpolate']) is not bool:
+        return False
+    if 'frames' in a:
+        if not isinstance(a['frames'], list):
+            return False
+        for frame in a['frames']:
+            if type(frame) is int and frame >= 0:
+                continue
+            if not isinstance(frame, dict) or type(frame.get('index')) is not int or frame['index'] < 0:
+                return False
+            if 'time' in frame and not positive(frame['time']):
+                return False
+    return True
+
+
 def validate(project):
     def require(condition, message):
         if not condition:
@@ -40,6 +63,8 @@ def validate(project):
         require(isinstance(item.get('color'), str), 'Item color 必须是字符串')
         require(not item.get('icon') or isinstance(item['icon'], str) and item['icon'].startswith('data:image/'),
                 '图标必须使用内嵌图片 data URL')
+        require(item.get('iconAnimation') is None or item.get('icon') and valid_animation(item['iconAnimation']),
+                'iconAnimation 必须为有效的 MC 动画元数据，且必须绑定图片')
     for category in project['itemCategories']:
         require(isinstance(category, dict) and isinstance(category.get('path'), list)
                 and bool(category['path']) and all(isinstance(v, str) and v.strip() for v in category['path']),
@@ -150,7 +175,8 @@ def schema():
                     'templates': '[{name,objects:[Object]}]', 'files': '[{path,src:data URL}]',
                     'camera': '{x,y,z:0.25..3}', 'recentItems': '[Item ID]', 'hiddenExamples': '[example Item ID]'},
         'Item': {'id': 'unique string', 'name': 'string', 'type': 'ore|ingot|plate|part',
-                 'color': '#RRGGBB', 'icon': 'optional data:image/... URL'},
+                 'color': '#RRGGBB', 'icon': 'optional data:image/... URL',
+                 'iconAnimation': 'optional .png.mcmeta JSON: {animation:{frametime,frames,interpolate,width,height}}'},
         'Object': {'id': 'unique within collection', 'type': 'image|slot|item', 'x': 'number', 'y': 'number',
                    'w': 'positive number', 'h': 'positive number', 'item': 'Item ID or null',
                    'qty': 'integer 1..999 for slot/item', 'role': 'input|output for slot',
@@ -188,7 +214,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path.startswith('/api/'):
             return self.api('GET')
-        if path not in ('/', '/index.html', '/assets/crafting.svg', '/assets/processor.svg'):
+        if path not in ('/', '/index.html', '/icon-animation.js', '/assets/crafting.svg', '/assets/processor.svg'):
             return self.reply(404, {'error': 'Not found'})
         self.send_static()
 

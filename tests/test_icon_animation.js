@@ -1,0 +1,20 @@
+const assert = require('node:assert/strict');
+const animation = require('../icon-animation.js');
+const standard = animation.parse({animation: {}}, 16, 64);
+assert.deepEqual(standard.frames.map(f => f.index), [0, 1, 2, 3]);
+assert.equal(animation.frameAt(standard, 0).index, 0);
+assert.equal(animation.frameAt(standard, 50).index, 1);
+assert.equal(animation.frameAt(standard, 200).index, 0);
+const custom = animation.parse({animation: {frametime: 3, interpolate: true,
+  frames: [2, {index: 0, time: 6}, 2]}}, 16, 64);
+assert.equal(animation.frameAt(custom, 150).index, 0);
+const middle = animation.frameAt(custom, 300);
+assert.equal(middle.index, 0);
+assert.equal(middle.next, 2);
+assert.equal(middle.blend, .5);
+assert.throws(() => animation.parse({animation: {frames: [4]}}, 16, 64), /帧/);
+assert.throws(() => animation.parse({animation: {frametime: 0}}, 16, 64), /时间/);
+assert.throws(() => animation.parse({animation: {}}, 16, 65), /尺寸/);
+assert.equal(animation.validMetadata({animation: {frames: [{index: 0, time: 0}]}}), false);
+assert.equal(animation.validMetadata({animation: {interpolate: true}}), true);
+console.log('Passed: MC frame order, tick timing, looping, per-frame durations, interpolation and invalid metadata');
